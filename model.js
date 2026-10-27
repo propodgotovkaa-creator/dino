@@ -19,7 +19,7 @@ export function pieceAt(x,y,d){
   return x<.40?6:7;
  }
  if(d.id==='velociraptor'){
-  if(x<.145)return 0;
+  if(x<.145&&y<.40)return 0;
   if(x>.47&&y<.49)return 4;
   if(x<.215&&y<.40)return 1;
   if(x<.32&&y>=.49&&y<.76)return 5;
@@ -28,6 +28,7 @@ export function pieceAt(x,y,d){
   return x<.415?6:7;
  }
  if(d.id==='triceratops'){
+  if(y>=.59&&x<.53)return 5;
   if(x<.37)return 0;
   if(x<.425&&y<.52)return 1;
   if(x>.78&&y<.72)return 4;

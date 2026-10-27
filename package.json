@@ -1,0 +1,1 @@
+{"name":"dinosaur-expedition","private":true,"type":"module","scripts":{"test":"node --test tests/model.test.js","test:engine":"node --test tests/engine.test.js"},"devDependencies":{"@napi-rs/canvas":"^0.1.80"}}

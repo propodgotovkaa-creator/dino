@@ -26,7 +26,9 @@ test('all four rounds: gated excavation, persistent masks, 40 thresholds, wrong 
  const f=fixture(),e=f.e;for(const id of ['rex','triceratops','stegosaurus','velociraptor','soil'])e.images[id]=await loadImage(path.join(root,'assets',id+'.webp'));
  const results=[];
  f.get('syllables').value='ма, МО\nРы';
- for(let round=0;round<4;round++){
+ f.get('start').onclick();assert.equal(e.state.screen,'choose');
+ for(const round of [3,1,0,2]){
+  f.get('choose-'+round).onclick();assert.equal(e.state.screen,'setup');assert.equal(f.get('selectedDino').textContent,model.dinosaurs[round].name);
   assert.equal(e.state.round,round);f.get('begin').onclick();assert.equal(e.state.screen,'dig');
   const first=e.getLayers()[0].mid.getContext('2d'),before=Buffer.from(first.getImageData(0,0,1536,650).data);
   f.get('earth').dispatch('pointerdown',event(60,60));f.get('earth').dispatch('pointermove',event(200,200));
@@ -46,9 +48,9 @@ test('all four rounds: gated excavation, persistent masks, 40 thresholds, wrong 
   const parts=e.getParts();assert.equal(parts.length,8);assert.ok(parts.every(p=>p.img.width>0&&p.img.height>0));
   const p=parts[0];f.get('assembly').dispatch('pointerdown',event(p.sx+p.sw/2,p.sy+p.sh/2));f.get('assembly').dispatch('pointermove',event(1400,620));f.get('assembly').dispatch('pointerup',event(1400,620));assert.equal(e.state.placed,0);
   for(const p of parts){f.get('assembly').dispatch('pointerdown',event(p.sx+p.sw/2,p.sy+p.sh/2));f.get('assembly').dispatch('pointermove',event(p.tx+p.tw/2,p.ty+p.th/2));f.get('assembly').dispatch('pointerup',event(p.tx+p.tw/2,p.ty+p.th/2));assert.equal(p.placed,true)}
-  assert.equal(e.state.placed,8);results.push({round:round+1,pieces:parts.map(p=>[p.img.width,p.img.height])});f.get('next').onclick();assert.equal(f.get('syllables').value,'ма, МО\nРы');
+  assert.equal(e.state.placed,8);results.push({round:round+1,pieces:parts.map(p=>[p.img.width,p.img.height])});f.get('next').onclick();assert.ok(e.state.completed.includes(round));if(e.state.completed.length<4){assert.equal(e.state.screen,'choose');assert.equal(f.get('choose-'+round).disabled,true)}assert.equal(f.get('syllables').value,'ма, МО\nРы');
  }
- assert.equal(e.state.screen,'final');assert.equal(f.get('exhibits').children.length,4);f.get('again').onclick();assert.equal(e.state.screen,'setup');assert.equal(e.state.round,0);console.log(JSON.stringify(results));
+ assert.equal(e.state.screen,'final');assert.equal(f.get('exhibits').children.length,4);f.get('again').onclick();assert.equal(e.state.screen,'choose');assert.equal(e.state.round,0);assert.equal(e.state.completed.length,0);console.log(JSON.stringify(results));
 });
 
 test('uncovering only the bone completes a patch while surrounding soil remains',async()=>{

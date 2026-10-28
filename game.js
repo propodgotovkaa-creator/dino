@@ -1,12 +1,12 @@
 import{parseSyllables,makeRound,dinosaurs,pieceAt,regionAt}from './model.js';
 const $=id=>document.getElementById(id),W=1536,H=650;
-const state={round:0,step:0,screen:'home',unlocked:false,transition:false,words:[],muted:false,drag:null,placed:0};
+const state={round:0,step:0,screen:'home',completed:[],unlocked:false,transition:false,words:[],muted:false,drag:null,placed:0};
 const images={};let layers=[],regionMasks=[],totals=[],bonePixels=[],dust=[],pointer=null,last=null,lastSound=0,frame=0,parts=[],audio,noise,checkAt=0;
 const earth=$('earth').getContext('2d'),assembly=$('assembly').getContext('2d');
 function fit(){const scale=Math.min(innerWidth/1600,innerHeight/900);$('stage').style.transform=`translate(-50%,-50%) scale(${scale})`;if(state.drag){state.drag=null;drawPuzzle()}pointer=null;last=null}
 addEventListener('resize',fit);fit();
 function canvas(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c}
-function show(name){state.screen=name;document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('hidden',s.id!==name));$('roundLabel').textContent=['home','final'].includes(name)?'':`Экспедиция ${state.round+1} из 4`;pointer=null;last=null;state.drag=null;cancelAnimationFrame(frame);if(name==='dig')drawDig();}
+function show(name){state.screen=name;document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('hidden',s.id!==name));$('roundLabel').textContent=['home','choose','final'].includes(name)?'':`Экспедиция ${state.completed.length+1} из 4`;pointer=null;last=null;state.drag=null;cancelAnimationFrame(frame);if(name==='dig')drawDig();}
 function store(key,value){try{localStorage.setItem(key,value)}catch{}}
 try{$('syllables').value=localStorage.getItem('dino-syllables')||'';state.muted=localStorage.getItem('dino-muted')==='true'}catch{}
 function soundLabel(){$('sound').textContent=`Звук: ${state.muted?'выключен':'включён'}`;$('sound').setAttribute('aria-pressed',String(state.muted))}soundLabel();
@@ -14,8 +14,19 @@ function initAudio(){try{audio??=new (window.AudioContext||window.webkitAudioCon
 function tone(type='find'){if(state.muted||!audio)return;const t=audio.currentTime,g=audio.createGain();g.connect(audio.destination);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(type==='brush'?.028:.045,t+.015);g.gain.exponentialRampToValueAtTime(.0001,t+.23);if(type==='brush'){const n=audio.createBufferSource(),f=audio.createBiquadFilter();n.buffer=noise;f.type='bandpass';f.frequency.value=1100;n.connect(f);f.connect(g);n.start();n.stop(t+.25)}else{const o=audio.createOscillator();o.type='sine';o.frequency.setValueAtTime(type==='place'?660:440,t);o.frequency.exponentialRampToValueAtTime(type==='place'?880:660,t+.15);o.connect(g);o.start();o.stop(t+.25)}}
 $('sound').onclick=()=>{initAudio();state.muted=!state.muted;store('dino-muted',state.muted);soundLabel()};
 function updateInput(){const words=parseSyllables($('syllables').value);$('begin').disabled=!words.length;$('syllableCount').textContent=`Слогов: ${words.length}`;store('dino-syllables',$('syllables').value)}$('syllables').addEventListener('input',updateInput);updateInput();
-function setup(){state.unlocked=false;state.transition=false;$('setupRound').textContent=`ПОЛЕВОЙ ДНЕВНИК / РАУНД ${state.round+1} ИЗ 4`;updateInput();show('setup');$('syllables').focus()}
-$('start').onclick=()=>{initAudio();state.round=0;setup()};
+function setup(){state.unlocked=false;state.transition=false;$('setupRound').textContent=`ПОЛЕВОЙ ДНЕВНИК / РАУНД ${state.completed.length+1} ИЗ 4`;$('selectedDino').textContent=dinosaurs[state.round].name;updateInput();show('setup');$('syllables').focus()}
+function chooseDinosaur(){
+ for(let i=0;i<dinosaurs.length;i++){
+  const done=state.completed.includes(i);$('choose-'+i).disabled=done;
+  $('choice-status-'+i).textContent=done?'Скелет уже собран':'Начать раскопки →';
+ }
+ show('choose');
+}
+for(let i=0;i<dinosaurs.length;i++)$('choose-'+i).onclick=()=>{
+ if(state.completed.includes(i))return;state.round=i;setup();
+};
+$('changeDino').onclick=chooseDinosaur;
+$('start').onclick=()=>{initAudio();state.round=0;state.completed=[];chooseDinosaur()};
 $('begin').onclick=()=>{state.words=makeRound($('syllables').value);if(!state.words.length)return;initAudio();state.step=0;state.unlocked=false;state.transition=false;dust=[];prepareEarth();updateReading();show('dig')};
 $('read').onclick=()=>{if(state.unlocked||state.transition)return;initAudio();state.unlocked=true;$('syllable').classList.add('hidden');$('read').disabled=true;$('read').textContent='Кисточка готова';$('digInstruction').textContent='Расчисти кость — остальная земля исчезнет сама';$('hint').textContent=areaHint();};
 function areaHint(){const col=state.step<5?state.step:9-state.step;return `${state.step<5?'Верхняя':'Нижняя'} часть раскопа · ${['слева','левее центра','в центре','правее центра','справа'][col]}`}
@@ -67,8 +78,8 @@ function drawPuzzle(){if(state.screen!=='puzzle')return;const g=assembly;g.clear
  for(const p of parts){g.save();if(!p.placed){g.globalAlpha=.24;g.filter='grayscale(1) brightness(2)'}g.drawImage(p.img,p.tx,p.ty,p.tw,p.th);g.restore();if(!p.placed&&state.drag?.p!==p)g.drawImage(p.img,p.sx,p.sy,p.sw,p.sh)}if(state.drag){const d=state.drag;g.save();g.shadowBlur=15;g.shadowColor='#0008';g.drawImage(d.p.img,d.x,d.y,d.p.tw,d.p.th);g.restore()}}
 $('assembly').addEventListener('pointerdown',e=>{if(state.drag||state.placed===8)return;const q=point(e,$('assembly'));const p=parts.find(p=>!p.placed&&q.x>=p.slot*183+7&&q.x<=p.slot*183+181&&q.y>=488&&q.y<=648);if(!p)return;e.preventDefault();initAudio();const ax=Math.max(0,Math.min(1,(q.x-p.sx)/p.sw)),ay=Math.max(0,Math.min(1,(q.y-p.sy)/p.sh));state.drag={p,id:e.pointerId,ax,ay,x:q.x-ax*p.tw,y:q.y-ay*p.th};$('assembly').setPointerCapture(e.pointerId);drawPuzzle()});
 $('assembly').addEventListener('pointermove',e=>{const d=state.drag;if(!d||d.id!==e.pointerId)return;e.preventDefault();const q=point(e,$('assembly'));d.x=q.x-d.ax*d.p.tw;d.y=q.y-d.ay*d.p.th;drawPuzzle()});
-$('assembly').addEventListener('pointerup',e=>{const d=state.drag;if(!d||d.id!==e.pointerId)return;const p=d.p;if(Math.hypot(d.x-p.tx,d.y-p.ty)<68){p.placed=true;state.placed++;tone('place');$('piecesCount').textContent=`${state.placed} / 8`;$('puzzleHint').textContent='Верно! Найди место для следующей детали'}else $('puzzleHint').textContent='Попробуй ещё раз: совмести деталь с её силуэтом';state.drag=null;drawPuzzle();if(state.placed===8){$('assembled').classList.remove('hidden');$('puzzleHint').textContent='Все детали на своих местах';$('next').innerHTML=state.round===3?'Открыть музей <span>→</span>':'Следующие раскопки <span>→</span>'}});
+$('assembly').addEventListener('pointerup',e=>{const d=state.drag;if(!d||d.id!==e.pointerId)return;const p=d.p;if(Math.hypot(d.x-p.tx,d.y-p.ty)<68){p.placed=true;state.placed++;tone('place');$('piecesCount').textContent=`${state.placed} / 8`;$('puzzleHint').textContent='Верно! Найди место для следующей детали'}else $('puzzleHint').textContent='Попробуй ещё раз: совмести деталь с её силуэтом';state.drag=null;drawPuzzle();if(state.placed===8){$('assembled').classList.remove('hidden');$('puzzleHint').textContent='Все детали на своих местах';$('next').innerHTML=state.completed.length===3?'Открыть музей <span>→</span>':'Следующие раскопки <span>→</span>'}});
 for(const event of ['pointercancel','lostpointercapture'])$('assembly').addEventListener(event,()=>{if(state.drag){state.drag=null;drawPuzzle()}});
-$('next').onclick=()=>{if(state.placed!==8)return;if(state.round<3){state.round++;setup()}else{const exhibits=$('exhibits');exhibits.replaceChildren();for(const d of dinosaurs){const el=document.createElement('div');el.className='exhibit';const img=document.createElement('img');img.src=images[d.id].src;img.alt=d.name;const label=document.createElement('span');label.textContent=d.name;el.append(img,label);exhibits.append(el)}show('final')}};
-$('again').onclick=()=>{state.round=0;setup()};$('back').onclick=()=>{state.round=0;show('home')};
+$('next').onclick=()=>{if(state.placed!==8)return;if(!state.completed.includes(state.round))state.completed.push(state.round);if(state.completed.length<4){chooseDinosaur()}else{const exhibits=$('exhibits');exhibits.replaceChildren();for(const d of dinosaurs){const el=document.createElement('div');el.className='exhibit';const img=document.createElement('img');img.src=images[d.id].src;img.alt=d.name;const label=document.createElement('span');label.textContent=d.name;el.append(img,label);exhibits.append(el)}show('final')}};
+$('again').onclick=()=>{state.round=0;state.completed=[];chooseDinosaur()};$('back').onclick=()=>{state.round=0;state.completed=[];show('home')};
 async function load(){try{await Promise.all(['rex','triceratops','stegosaurus','velociraptor','soil','brush','expedition','lab','museum'].map(id=>new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{images[id]=img;resolve()};img.onerror=()=>reject(new Error(id));img.src=`assets/${id}.webp`})));$('loading').classList.add('hidden')}catch(error){$('loading').replaceChildren();const wrap=document.createElement('div');wrap.textContent='Не удалось загрузить ресурсы. Проверьте соединение. ';const button=document.createElement('button');button.textContent='Повторить';button.className='primary';button.onclick=()=>location.reload();wrap.append(button);$('loading').append(wrap)}}load();

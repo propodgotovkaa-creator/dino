@@ -1,7 +1,7 @@
 import{parseSyllables,makeRound,dinosaurs,pieceAt,regionAt}from './model.js';
 const $=id=>document.getElementById(id),W=1536,H=650;
 const state={round:0,step:0,screen:'home',unlocked:false,transition:false,words:[],muted:false,drag:null,placed:0};
-const images={};let layers=[],regionMasks=[],totals=[],dust=[],pointer=null,last=null,lastSound=0,frame=0,parts=[],audio,noise,checkAt=0;
+const images={};let layers=[],regionMasks=[],totals=[],bonePixels=[],dust=[],pointer=null,last=null,lastSound=0,frame=0,parts=[],audio,noise,checkAt=0;
 const earth=$('earth').getContext('2d'),assembly=$('assembly').getContext('2d');
 function fit(){const scale=Math.min(innerWidth/1600,innerHeight/900);$('stage').style.transform=`translate(-50%,-50%) scale(${scale})`;if(state.drag){state.drag=null;drawPuzzle()}pointer=null;last=null}
 addEventListener('resize',fit);fit();
@@ -17,11 +17,15 @@ function updateInput(){const words=parseSyllables($('syllables').value);$('begin
 function setup(){state.unlocked=false;state.transition=false;$('setupRound').textContent=`ПОЛЕВОЙ ДНЕВНИК / РАУНД ${state.round+1} ИЗ 4`;updateInput();show('setup');$('syllables').focus()}
 $('start').onclick=()=>{initAudio();state.round=0;setup()};
 $('begin').onclick=()=>{state.words=makeRound($('syllables').value);if(!state.words.length)return;initAudio();state.step=0;state.unlocked=false;state.transition=false;dust=[];prepareEarth();updateReading();show('dig')};
-$('read').onclick=()=>{if(state.unlocked||state.transition)return;initAudio();state.unlocked=true;$('syllable').classList.add('hidden');$('read').disabled=true;$('read').textContent='Кисточка готова';$('digInstruction').textContent='Води кисточкой по земле в указанной части';$('hint').textContent=areaHint();};
+$('read').onclick=()=>{if(state.unlocked||state.transition)return;initAudio();state.unlocked=true;$('syllable').classList.add('hidden');$('read').disabled=true;$('read').textContent='Кисточка готова';$('digInstruction').textContent='Расчисти кость — остальная земля исчезнет сама';$('hint').textContent=areaHint();};
 function areaHint(){const col=state.step<5?state.step:9-state.step;return `${state.step<5?'Верхняя':'Нижняя'} часть раскопа · ${['слева','левее центра','в центре','правее центра','справа'][col]}`}
 function updateReading(){const col=state.step<5?state.step:9-state.step;$('syllable').style.left=`${(col+.5)*W/5}px`;$('syllable').style.top=`${state.step<5?H*.25:H*.75}px`;$('syllable').classList.remove('hidden');$('syllable').textContent=state.words[state.step];const len=[...state.words[state.step]].length;$('syllable').style.fontSize=`${Math.min(76,210/Math.max(2,len))}px`;$('stepNumber').textContent=`${String(state.step+1).padStart(2,'0')} / 10`;$('progress').value=state.step;$('read').disabled=false;$('read').textContent='Прочитали! Копаем';$('digInstruction').textContent='Прочитайте слог, затем откройте участок';$('hint').textContent='Сначала прочитайте слог';$('coverage').textContent='';$('location').textContent=dinosaurs[state.round].place}
 let fossilRect,base;
 function prepareEarth(){const d=dinosaurs[state.round],img=images[d.id];base=canvas(W,H);const b=base.getContext('2d');b.drawImage(images.soil,0,0,W,H);b.fillStyle='#70573990';b.fillRect(0,0,W,H);const scale=Math.min((W-95)/img.width,(H-42)/img.height);fossilRect={x:(W-img.width*scale)/2,y:(H-img.height*scale)/2,w:img.width*scale,h:img.height*scale};b.drawImage(img,fossilRect.x,fossilRect.y,fossilRect.w,fossilRect.h);
+ // Measure progress on the fossil itself, not the empty soil around it.
+ const fossilMask=canvas(W,H),fg=fossilMask.getContext('2d');fg.drawImage(img,fossilRect.x,fossilRect.y,fossilRect.w,fossilRect.h);
+ const fossilAlpha=fg.getImageData(0,0,W,H).data;bonePixels=Array.from({length:10},()=>[]);
+ for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4+3;if(fossilAlpha[i]>=100)bonePixels[regionAt(x,y,W,H)].push(i)}
  regionMasks=Array.from({length:10},()=>canvas(W,H));totals=Array(10).fill(0);const ids=regionMasks.map(c=>c.getContext('2d').createImageData(W,H));for(let y=0;y<H;y++)for(let x=0;x<W;x++){const r=regionAt(x,y,W,H);ids[r].data[(y*W+x)*4+3]=255;totals[r]++}regionMasks.forEach((c,i)=>c.getContext('2d').putImageData(ids[i],0,0));
  layers=regionMasks.map(mask=>{const make=(middle)=>{const c=canvas(W,H),g=c.getContext('2d',{willReadFrequently:true});g.drawImage(images.soil,0,0,W,H);g.fillStyle=middle?'rgba(243,211,153,.38)':d.tint;g.fillRect(0,0,W,H);g.globalCompositeOperation='destination-in';g.drawImage(mask,0,0);g.globalCompositeOperation='source-over';return c};return{top:make(false),mid:make(true),opacity:1,done:false}});
 }
@@ -33,7 +37,23 @@ function brushPosition(p){$('brush').style.left=p.x+'px';$('brush').style.top=p.
 function erase(p){if(!state.unlocked||state.transition)return;const l=layers[state.step],from=last||p,dist=Math.hypot(p.x-from.x,p.y-from.y),count=Math.max(1,Math.ceil(dist/9));for(let k=1;k<=count;k++){let x=from.x+(p.x-from.x)*k/count,y=from.y+(p.y-from.y)*k/count;for(const [layer,opacity,radius]of [[l.top,.72,56],[l.mid,.36,50]]){const g=layer.getContext('2d');g.globalCompositeOperation='destination-out';const grad=g.createRadialGradient(x,y,4,x,y,radius);grad.addColorStop(0,`rgba(0,0,0,${opacity})`);grad.addColorStop(.65,`rgba(0,0,0,${opacity})`);grad.addColorStop(1,'rgba(0,0,0,0)');g.fillStyle=grad;g.fillRect(x-radius,y-radius,radius*2,radius*2);g.globalCompositeOperation='source-over'}}last=p;
  if(regionAt(p.x,p.y,W,H)===state.step){for(let i=0;i<3;i++)dust.push({x:p.x,y:p.y,r:1+Math.random()*4,vx:(Math.random()-.5)*2,vy:-Math.random()*1.4,life:1});if(performance.now()-lastSound>140){tone('brush');lastSound=performance.now()}}
  if(performance.now()-checkAt>120){checkAt=performance.now();measure()}}
-function measure(){if(!state.unlocked||state.transition)return;const l=layers[state.step],a=l.mid.getContext('2d').getImageData(0,0,W,H).data;let remaining=0;for(let i=3;i<a.length;i+=4)remaining+=a[i]/255;const cleared=1-remaining/totals[state.step];$('coverage').textContent=`Очищено ${Math.floor(cleared*100)}%`;if(cleared>=.80)finishArea()}
+function measure(){
+ if(!state.unlocked||state.transition)return;
+ const l=layers[state.step],a=l.mid.getContext('2d').getImageData(0,0,W,H).data,targets=bonePixels[state.step];
+ let remaining=0,progress;
+ if(targets.length>=64){
+  for(const i of targets)remaining+=a[i]/255;
+  // A clearly uncovered part of the bone is enough; the rest fades away.
+  progress=(1-remaining/targets.length)/.60;
+ }else{
+  // Some edge patches contain no fossil: a brief brush sweep still completes
+  // the reading turn, without making the child scrub an empty rectangle.
+  for(let i=3;i<a.length;i+=4)remaining+=a[i]/255;
+  progress=(1-remaining/totals[state.step])/.06;
+ }
+ $('coverage').textContent=targets.length>=64?`Кость открывается: ${Math.min(100,Math.floor(progress*100))}%`:'Расчищаем остатки грунта';
+ if(progress>=1)finishArea();
+}
 function finishArea(){state.transition=true;state.unlocked=false;last=null;pointer=null;const l=layers[state.step],start=performance.now();tone();$('hint').textContent='Участок расчищен';const fade=now=>{if(state.screen!=='dig')return;l.opacity=1-Math.min(1,(now-start)/500);if(l.opacity>0)requestAnimationFrame(fade);else{l.done=true;state.transition=false;state.step++;if(state.step===10){$('foundName').textContent=dinosaurs[state.round].name;$('foundSkeleton').src=images[dinosaurs[state.round].id].src;show('discovery')}else updateReading()}};requestAnimationFrame(fade)}
 $('earth').addEventListener('pointerdown',e=>{if(!state.unlocked||pointer!==null)return;e.preventDefault();pointer=e.pointerId;$('earth').setPointerCapture(pointer);last=point(e,$('earth'));brushPosition(last)});
 $('earth').addEventListener('pointermove',e=>{const p=point(e,$('earth'));if(pointer===null||e.pointerId===pointer)brushPosition(p);if(pointer===e.pointerId){e.preventDefault();erase(p)}});

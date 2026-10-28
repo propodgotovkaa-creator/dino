@@ -18,7 +18,7 @@ function fixture(){let time=0,raf=[],elements={};const get=id=>elements[id]??=ne
  const document={getElementById:get,querySelectorAll:()=>[],createElement:n=>n==='canvas'?createCanvas(1,1):new Element(n)};
  const context=vm.createContext({...model,document,innerWidth:1600,innerHeight:900,addEventListener(){},localStorage:{getItem(){return null},setItem(){}},window:{},performance:{now:()=>time},requestAnimationFrame:f=>{raf.push(f);return raf.length},cancelAnimationFrame(){},console});
  let source=fs.readFileSync(path.join(root,'game.js'),'utf8').replace(/^import[^\n]+\n/,'').replace(/load\(\);\s*$/,'');
- vm.runInContext(source+`;globalThis.engine={state,images,prepareEarth,updateReading,show,erase,measure,createPieces,fit,getLayers:()=>layers,getParts:()=>parts};`,context);
+ vm.runInContext(source+`;globalThis.engine={state,images,prepareEarth,updateReading,show,erase,measure,createPieces,fit,getLayers:()=>layers,getParts:()=>parts,getBonePixels:()=>bonePixels};`,context);
  return{e:context.engine,get,tick(ms=1000){time+=ms;const q=raf;raf=[];q.forEach(f=>f(time))},advance(ms=150){time+=ms}};
 }
 const event=(x,y,id=1)=>({clientX:x,clientY:y,pointerId:id,preventDefault(){}});
@@ -40,7 +40,7 @@ test('all four rounds: gated excavation, persistent masks, 40 thresholds, wrong 
     for(let y=y0+3;y<y0+325&&e.state.unlocked;y+=14){f.advance();for(let x=col*307.2+3;x<Math.min(1536,(col+1)*307.2+20)&&e.state.unlocked;x+=9)f.get('earth').dispatch('pointermove',event(x,y));}
     f.get('earth').dispatch('pointerup',event(col*307.2+3,y0+320));
    }
-   assert.equal(e.state.transition,true,`round ${round} step ${step} must reach 80%`);f.tick();assert.equal(e.getLayers()[step].done,true);e.fit();assert.equal(e.getLayers()[step].done,true,'resize preserves cleared region');
+   assert.equal(e.state.transition,true,`round ${round} step ${step} must uncover bone or clear empty patch`);f.tick();assert.equal(e.getLayers()[step].done,true);e.fit();assert.equal(e.getLayers()[step].done,true,'resize preserves cleared region');
   }
   assert.equal(e.state.screen,'discovery');f.get('assemble').onclick();assert.equal(e.state.screen,'puzzle');
   const parts=e.getParts();assert.equal(parts.length,8);assert.ok(parts.every(p=>p.img.width>0&&p.img.height>0));
@@ -49,4 +49,20 @@ test('all four rounds: gated excavation, persistent masks, 40 thresholds, wrong 
   assert.equal(e.state.placed,8);results.push({round:round+1,pieces:parts.map(p=>[p.img.width,p.img.height])});f.get('next').onclick();assert.equal(f.get('syllables').value,'ма, МО\nРы');
  }
  assert.equal(e.state.screen,'final');assert.equal(f.get('exhibits').children.length,4);f.get('again').onclick();assert.equal(e.state.screen,'setup');assert.equal(e.state.round,0);console.log(JSON.stringify(results));
+});
+
+test('uncovering only the bone completes a patch while surrounding soil remains',async()=>{
+ const f=fixture(),e=f.e;
+ for(const id of ['rex','soil'])e.images[id]=await loadImage(path.join(root,'assets',id+'.webp'));
+ f.get('syllables').value='МА';f.get('begin').onclick();f.get('read').onclick();
+ const layer=e.getLayers()[0],ctx=layer.mid.getContext('2d'),pixels=ctx.getImageData(0,0,1536,650);
+ const targets=e.getBonePixels()[0];assert.ok(targets.length>64);
+ let original=0;for(let i=3;i<pixels.data.length;i+=4)original+=pixels.data[i];
+ for(const i of targets)pixels.data[i]=0;
+ ctx.putImageData(pixels,0,0);
+ let remaining=0;for(let i=3;i<pixels.data.length;i+=4)remaining+=pixels.data[i];
+ assert.ok(remaining/original>.50,'most surrounding soil is still present');
+ e.measure();assert.equal(e.state.transition,true,'bone-only brushing completes the turn');
+ assert.equal(layer.done,false,'remaining earth fades rather than disappearing immediately');
+ f.tick();assert.equal(layer.done,true);assert.equal(e.state.step,1);assert.equal(e.state.unlocked,false);
 });
